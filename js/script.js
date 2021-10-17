@@ -112,7 +112,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initBaudRate();
     loadAllSettings();
     updateTheme();
-    logMsg("Welcome to O.MG Web Serial Flasher. Ready...");
+    logMsg("WebSerial ESPTool loaded.");
 });
 
 
@@ -152,31 +152,6 @@ function updateProgress(part, percentage) {
 async function disconnect() {
     toggleUIToolbar(false);
     await espTool.disconnect()
-}
-
-
-async function endHelper(){
-	//logMsg("Please reload this webpage and make sure to reconnect cable and flasher if trying to flash another cable or recovering from error.");
-
-    //	toggleUIToolbar(false);
-
-	butProgram.textContent="Reload Web Page To Continue";
-	butConnect.disabled=true;	
-	baudRate.disabled=true;
-	butClear.disabled=true;
-	butErase.disabled=true;
-	butProgram.disabled=true;
-	butProgram.textContent="Reload Web Page To Continue";
-	autoscroll.disabled=true;
-	document.getElementsByClassName("autoscrolldiv")[0].innerText = "";
-	
-	butConnect.classList.add("hidden");
-	butClear.classList.add("hidden");
-	/*baudRate.classList.add("hidden");
-	
-	butErase.classList.add("hidden");
-	butProgram.classList.add("hidden");
-	autoscroll.classList.add("hidden");*/
 }
 
 /**
@@ -275,9 +250,7 @@ function debugMsg(...args) {
 
 function errorMsg(text) {
     logMsg("<span class=\"error-message\">Error:</span> " + text);
-    logMsg("<span class=\"error-message\">NOTICE: </span> " + "You must reload this webpage to continue");
     console.log(text);
-    endHelper();
 }
 
 function formatMacAddr(macAddr) {
@@ -454,12 +427,12 @@ async function getFirmwareFiles(branch, erase = false, bytes = 0x00) {
     }
     for (let i = 0; i < chip_files.length; i++) {
         if (!("name" in chip_files[i]) || !("offset" in chip_files[i])) {
-            errorMsg("Invalid data, cannot load online flash resources");
+            logMsg("Invalid data, cannot load online flash resources");
         }
         let request_file = url + chip_files[i]["name"];
         let tmp = await fetch(request_file).then((response) => {
             if (response.status >= 400 && response.status < 600) {
-                errorMsg("Error! Failed to fetch \"" + request_file + "\" due to error response " + response.status);
+                logMsg("Error! Failed to fetch \"" + request_file + "\" due to error response " + response.status);
                 flashingReady = false;
                 throw new Error("Bad response from server");
             }
@@ -488,7 +461,7 @@ async function getFirmwareFiles(branch, erase = false, bytes = 0x00) {
             });
             if(content_length<1||flash_list[i].data.byteLength<1){
             	flashingReady=false;
-            	errorMsg("Empty file found for file " + chip_files[i]["name"] + " and url " + request_file + " with size " + content_length);
+            	logMsg("Empty file found for file " + chip_files[i]["name"] + " and url " + request_file + " with size " + content_length);
             	throw new Error("Bad response from server, invalid downloaded file size");
             }
             if (debugState) {
@@ -551,7 +524,6 @@ async function clickProgram() {
         if (flash_successful) {
             logMsg("To run the new firmware, please unplug your device and plug into normal USB port.");
             logMsg(" ");
-            endHelper();
         }
         baudRate.disabled = false;
     }
