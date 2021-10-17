@@ -1,2 +1,3 @@
-# WebFlasher-Test
-The Test Web Flasher - This is just a mirror of the 'dev' branch
+# O.MG WebFlasher Utility
+
+A Web Serial tool for updating your ESP bootloader.

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>O.MG WebFlasher Utility</title>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+      // Redirect to HTTPS if HTTP is requested.
+      if (window.location.protocol === 'http:') {
+        window.location.href = 'https:' + window.location.href.substring(5);
+      }
+    </script>
+
+    <!-- import the web page's stylesheets along with the themes -->
+    <!--<link rel="stylesheet" href="https://use.typekit.net/qtk5kiq.css">-->
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/light.css" id="light" class="alternate" disabled>
+    <link rel="stylesheet" href="css/dark.css"  id="dark"  class="alternate" disabled>
+
+    <!-- import the webpage's javascript file -->
+    <script src="js/utilities.js" defer></script>
+    <script src="js/esptool.js" defer></script>
+    <script src="js/script.js" defer></script>
+  </head>
+  <body>
+    <header class="header">
+      <div class="left">
+        <img src="assets/logo.png" class="Logo">
+      </div>
+      <div class="right">
+        <select id="baudRate"></select>
+        <button id="butConnect" type="button">Connect</button>
+      </div>
+    </header>
+    <main class="main">
+      <div id="notSupported" class="notSupported">
+        Sorry, <b>Web Serial</b> is not supported on this device, make sure you're
+        running Chrome 78 or later and have enabled the
+        <code>#enable-experimental-web-platform-features</code> flag in
+        <code>chrome://flags</code>. Please not NO mobile browsers are supported, check <a href="https://caniuse.com/web-serial">Can I Use WebSerial</a> for compatibility. 
+      </div>
+      <div class="subheader">
+        <div class="title left">
+          O.MG WebFlasher Utility
+        </div>
+        <div class="right hidden">
+          <label for="darkmode">
+            Dark Mode
+          </label>
+          <div class="onoffswitch hidden">
+            <input type="checkbox" name="darkmode" class="onoffswitch-checkbox" id="darkmode">
+            <label class="onoffswitch-label" for="darkmode">
+              <span class="onoffswitch-inner"></span>
+              <span class="onoffswitch-switch"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div id="app">
+        <div id="commands">
+          <div class="upload">
+            <div class="progress-bar hidden"><div></div></div>
+          </div>
+          <div class="upload">
+            <div class="progress-bar hidden"><div></div></div>
+          </div>
+          <div class="upload">
+            <div class="progress-bar hidden"><div></div></div>
+          </div>
+          <div class="upload">
+            <div class="progress-bar hidden"><div></div></div>
+          </div>
+          <div class="upload">
+            <div class="progress-bar hidden"><div></div></div>
+          </div>
+          <div class="buttons" class="hidden">
+            <div class="hidden">Version: </div>
+            <select id="branch" class="hidden">
+              <option value="master">Stable</option>
+              <option value="dev">Beta</option>
+            </select>
+          </div>
+          <div class="buttons">
+            <button id="butProgram" type="button">Program</button>
+            <button id="butErase" type="button" class="hidden">Safe Erase</button>
+          </div>
+        </div>
+        <div id="log"></div>
+      </div>
+    </main>
+    <footer class="footer">
+      <div class="left autoscrolldiv">
+        <label for="autoscroll">Autoscroll</label>
+        <div class="onoffswitch">
+          <input type="checkbox" name="autoscroll" class="onoffswitch-checkbox" id="autoscroll">
+          <label class="onoffswitch-label" for="autoscroll">
+            <span class="onoffswitch-inner"></span>
+            <span class="onoffswitch-switch"></span>
+          </label>
+        </div>
+      </div>
+      <div class="right">
+        <span id="fpsCounter"></span>
+        <button id="butClear" type="button">Clear Text</button>
+        <button id="butDownload" type="button">Download Log</button>
+      </div>
+    </footer>
+  </body>
+</html>
