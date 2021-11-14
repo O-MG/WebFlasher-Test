@@ -6,12 +6,11 @@
 var espTool;
 
 const baudRates = [115200];
-
 const bufferSize = 512;
-
 const eraseFillByte = 0x00;
 
 const maxLogLength = 100;
+
 const log = document.getElementById("log");
 const stepBox = document.getElementById("steps-container");
 const butWelcome = document.getElementById("btnWelcome");
@@ -33,6 +32,7 @@ const butWifiMode = document.getElementsByName("wifiMode");
 const txtSSIDName = document.getElementById("ssidName");
 const txtSSIDPass = document.getElementById("ssidPass");
 const butSave = document.getElementById("btnSaveSettings");
+const butDebug = document.getElementById("btnDebug");
 
 // Programming 
 const statusAlertBox = document.getElementById("statusAlert");
@@ -51,7 +51,6 @@ var isConnected = false;
 var base_offset = 0;
 var activePanels = [];
 var debugState = false;
-var doPreWriteErase = false;
 var flashingReady = true;
 
 var logMsgs = [];
@@ -59,11 +58,13 @@ var logMsgs = [];
 var skipWelcome = false;
 
 var settings = {
-    "customizeConfig": butCustomize,
-    "darkMode": darkMode,
+    "customizeConfig": butCustomize, 
+    "preEraseCable": butEraseCable,
+    "setUIDarkMode": darkMode,
     "devWiFiSSID": txtSSIDName,
+    "devWiFiPass": txtSSIDPass,
     "devWifiMode": butWifiMode,
-    "firmwareRelease": null,
+    "firmwareRelease": butBranch,
     "skipWelcome": butSkipWelcome
 }
 
@@ -117,7 +118,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // set the clear button and reset
     document.addEventListener("keydown", (event) => {
         if (isConnected && (event.isComposing || event.key == "Shift")) {
-            console.log("Shift Key Pressed");
+            //console.log("Shift Key Pressed");
             butProgram.classList.replace("btn-danger", "btn-warning");
             butProgram.innerText = "Erase";
         }
@@ -125,7 +126,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.addEventListener("keyup", (event) => {
         if (isConnected && event.key == "Shift") {
-            console.log("Shift Key Unpressed");
+            //console.log("Shift Key Unpressed");
             butProgram.classList.replace("btn-warning", "btn-danger");
             butProgram.innerText = "Program"
         }
@@ -136,6 +137,7 @@ document.addEventListener("DOMContentLoaded", () => {
     butWelcome.addEventListener("click", clickWelcome);
     butSkipWelcome.addEventListener("click", clickSkipWelcome);
     butSave.addEventListener("click", clickSave);
+    butDebug.addEventListener("click",clickDebug);
     butCustomize.addEventListener("click", toggleDevConf);
     butHardware.addEventListener("click", clickHardware);
     butProgram.addEventListener("click", clickProgramErase);
@@ -428,7 +430,10 @@ async function clickConnect() {
         toggleUIConnected(false);
         return;
     }
-    console.log(espTool);
+    // give us access to the ESP session
+    if(debugState){
+	    console.log(espTool);
+	}
 }
 /**
  * @name changeBaudRate
@@ -668,14 +673,14 @@ async function clickProgram() {
     } else {
         logMsg("Flashing firmware based on code branch " + branch + ". ");
         // erase 
-        if (doPreWriteErase) {
+        if (butEraseCable.checked) {
             logMsg("Erasing flash before performing writes. This may take some time... ");
             if (debugState) {
                 console.log("performing flash erase before writing");
             }
             await eraseFlash(await espTool.getFlashID());
             logMsg("Erasing complete, continuing with flash process");
-            toggleUIProgram(true);
+            //toggleUIProgram(true);
         }
         // update the bins with patching
         updateCoreProgress(70);
@@ -704,15 +709,16 @@ async function clickProgram() {
             }
         }
         if (flash_successful) {
-            setStatusAlert("Cable Programmed, please reload web page and remove programmer and cable");
+            setStatusAlert("Device Programmed, please reload web page and remove programmer and cable");
             toggleUIProgram(true);
             logMsg("To run the new firmware, please unplug your device and plug into normal USB port.");
             logMsg(" ");
             endHelper();
         } else {
-            setStatusAlert("Cable flash failed and could not be completed.");
+            setStatusAlert("Device flash failed and could not be completed.");
+            printSettings(true);
             toggleUIProgram(true);    
-            logMsg("To run the new firmware, please unplug your device and plug into normal USB port.");
+            logMsg("Failed to flash device successfully");
             logMsg(" ");
             endHelper();
         }
@@ -829,6 +835,17 @@ async function eraseSection(offset, ll = 1024, b = 0xff) {
     } while (offset < offset_end_size);
 }
 
+async function clickDebug(){
+	const urlParams = new URLSearchParams(window.location.search);
+	if(urlParams.has("debug")){
+		urlParams.delete("debug");
+	} else {
+		urlParams.set('debug', 'true');
+	}
+	window.location.search = urlParams;
+  	//location.replace('http://example.com/#' + initialPage);
+}
+
 async function clickErase() {
     baudRate.disabled = true;
     butProgram.disabled = false;
@@ -943,11 +960,19 @@ function toggleUIConnected(connected) {
 }
 
 function saveSetting(setting, value) {
+	if(debugState){
+		console.log("Saving data to setting '" + setting + "' with value '" + value + "'.");
+	}
     window.localStorage.setItem(setting, value);
 }
 
 function loadSetting(setting) {
-    return window.localStorage.getItem(setting);
+
+	let data = window.localStorage.getItem(setting);
+	if(debugState){
+		console.log("Fetching data from setting '" + setting + "' with value '" + data + "'.");
+	}
+    return data;
 }
 
 function setCookie(name, value, days) {
@@ -980,6 +1005,7 @@ function loadSettings() {
     let welcomeScreen = getCookie("OMGWebFlasherSkipWelcome");
     if (welcomeScreen !== null) {
         skipWelcome = true;
+        butSkipWelcome.checked=true;
     }
     for (var key in settings) {
         if (settings[key] !== null) {
@@ -987,31 +1013,78 @@ function loadSettings() {
             try {
                 let value = loadSetting(key);
                 let element = settings[key];
-                console.log("setting:" + key + " value " + value + " ele " + element);
+                let element_state = element.disabled;
                 if (NodeList.prototype.isPrototypeOf(element) || HTMLCollection.prototype.isPrototypeOf(element)) {
-                    for (let i = 0; i < element.length; i++) {
+                	for (let i = 0; i < element.length; i++) {
                         if (element[i].id !== undefined && element[i].id == value) {
+							if(debugState){
+								console.log("Found element with id " + value + " to select to true");
+							}
                             element[i].checked = true;
                         } else {
+							if(debugState){
+								console.log("Searching for element with id " + value + " to select to false");
+							}
                             element[i].checked = false;
                         }
                     }
                 } else {
-                    if (typeof value !== "undefined") {
-                        if (element.type == "checkbox") {
-                            element.checked = value;
-                        } else {
-                            element.value = value;
-                        }
+                    if (typeof value !== "undefined" && value !== null) {
+                    	const t = element.type=="checkbox" ? 'checked' : 'value';
+                    	if(debugState){
+                    		console.log("\tsettings['"+key+"']['"+t+"']="+value);
+                    	}
+                    	// this should be as simple as 
+                    	// element[t]=value
+                    	// but we need some added complexity due to all string inputs
+                    	if(t=="value"){
+                    		element.value=value;
+                    	} else {
+                    		// we don't evaluate json anymore so this is how we have to do it
+                    		if(value==="true"){
+                    			value=true;
+                    		} else {
+                    			value=false;
+                    		}
+	                    	element.checked=value;
+                    	}
+                    } else {
+                    	if(debugState){
+                    		console.log("element undefined: " + element);
+                    	}
                     }
-                }
-            } catch {
-                console.log("setting:" + key + " is invalid and being skipped");
+                } 
+            } catch(e) {
+                console.log("setting: " + key + " is invalid and being skipped");
+            	console.error("Exception thrown", e);
             }
         }
     }
 }
 
+function printSettings(traceReport=false) {
+	let tabs = "\t\t";
+	logMsg("")
+    logMsg("======================================");
+    if(traceReport){
+    	logMsg(tabs + "Settings Trace");
+    	logMsg("[Please provide this information to support when asked]");    	
+    } else {
+    	logMsg(tabs + "Configured Settings");
+    }
+    logMsg("======================================");
+    for (var key in settings) {
+        if (settings[key] !== null) {
+            try {
+                let value = loadSetting(key);
+                logMsg("Key: " + key + " \t=>\t Value: '" + value + "'");
+            } catch {
+            }
+        }
+    }
+    logMsg("======================================");
+    logMsg("");
+}
 
 function saveSettings() {
     // special setting here
@@ -1027,7 +1100,9 @@ function saveSettings() {
                 console.log("unable to save setting " + key + " due to it not being defined")
             } else {
                 if (NodeList.prototype.isPrototypeOf(element) || HTMLCollection.prototype.isPrototypeOf(element)) {
+
                     for (let i = 0; i < element.length; i++) {
+                    	console.log(element[i])
                         if (element[i].checked) {
                             saveSetting(key, element[i].id);
                         }
