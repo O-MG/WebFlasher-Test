@@ -162,9 +162,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // disable the programming button until we are connected
     butProgram.disabled = true;
     accordionDisable();
-        
+
     logMsg("Welcome to O.MG Web Serial Flasher. Ready...");
-    
+
 });
 
 
@@ -222,7 +222,7 @@ function updateCoreProgress(percentage) {
 function completeProgress() {
     for (let i = 0; i < progress.length; i++) {
         let progressBar = progress[i];
-        let maxValue = maxProgress+10; // for good measure
+        let maxValue = maxProgress + 10; // for good measure
         progressBar.setAttribute("aria-valuenow", maxValue);
         progressBar.style.width = maxValue + "%";
         progressBar.classList.remove("progress-bar-animated");
@@ -746,7 +746,7 @@ async function clickProgram() {
             endHelper();
             toggleUIProgram(true);
         } else {
-            setStatusAlert("Device flash failed and could not be completed. Refresh WebFlasher page when ready to attempt flashing again.","danger");
+            setStatusAlert("Device flash failed and could not be completed. Refresh WebFlasher page when ready to attempt flashing again.", "danger");
             printSettings(true);
             logMsg("Failed to flash device successfully");
             toggleUIProgram(false);
