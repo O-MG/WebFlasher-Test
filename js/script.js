@@ -7,13 +7,14 @@ var espTool;
 
 const baudRates = [115200];
 const bufferSize = 512;
-const eraseFillByte = 0x00;
+const eraseFillByte = 0xff;
 
 const maxLogLength = 100;
 
 const log = document.getElementById("log");
 const stepBox = document.getElementById("steps-container");
 const butWelcome = document.getElementById("btnWelcome");
+const butStart = document.getElementById("btnStart");
 const butConnect = document.getElementById("btnConnect");
 const butSkipWelcome = document.getElementById("welcomeScreenCheck");
 
@@ -31,6 +32,7 @@ const butBranch = document.querySelector("#branch");
 const butWifiMode = document.getElementsByName("wifiMode");
 const txtSSIDName = document.getElementById("ssidName");
 const txtSSIDPass = document.getElementById("ssidPass");
+const butSettings = document.getElementById("settingsButton");
 const butSave = document.getElementById("btnSaveSettings");
 const butDebug = document.getElementById("btnDebug");
 
@@ -46,7 +48,11 @@ const progress = document.querySelectorAll(".progress-bar");
 var currProgress = 0;
 var maxProgress = 100;
 
+var isWriting = false;
 var isConnected = false;
+var keysPressed = {};
+
+var accordionStart = 0;
 
 var base_offset = 0;
 var activePanels = [];
@@ -99,9 +105,23 @@ document.addEventListener("DOMContentLoaded", () => {
         debugState = debug;
     }
 
-	// for 2.5 BETA RELEASE ONLY
-	window.localStorage.clear();
-
+	let urlloc = String(window.location.href);
+	if(urlloc.includes("localhost") || urlloc.includes("Test")){
+		debugState=true;
+		skipWelcome=false;
+		debug=true;
+		toggleDevConf(true);
+		butCustomize.disabled=false;
+		butSettings.classList.remove("d-none");
+		let debug_im="Debug Mode Detected: URL is: " + window.location.href;
+		logMsg(debug_im);
+		console.log(debug_im);
+	} else {
+		// for 2.5 BETA RELEASE ONLY
+		butCustomize.disabled=true;
+		window.localStorage.clear();	
+	}
+	
     loadSettings();
 
     espTool = new EspLoader({
@@ -119,25 +139,40 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // set the clear button and reset
-    /*document.addEventListener("keydown", (event) => {
-        if (isConnected && (event.isComposing || event.key == "Shift")) {
-            //console.log("Shift Key Pressed");
+	document.addEventListener('keydown', (event) => {
+		keysPressed[event.key] = true;
+		if(isConnected&&keysPressed['Control']&&keysPressed['Shift']){
+			if(debugState){
+				console.log("Ctrl+Shift Pressed! Erase Mode Activated")
+			}
             butProgram.classList.replace("btn-danger", "btn-warning");
-            butProgram.innerText = "Erase";
-        }
-    });
-
-    document.addEventListener("keyup", (event) => {
-        if (isConnected && event.key == "Shift") {
-            //console.log("Shift Key Unpressed");
-            butProgram.classList.replace("btn-warning", "btn-danger");
+            butProgram.getElementsByClassName("programMsg")[0].innerText = "Erase";
+		}
+	});
+	/*document.addEventListener('keyup', (event) => {
+		delete keysPressed[event.key];
+		if(event.key == 'Control' || event.key == 'Shift'){
+			if(debugState){
+				console.log("Ctrl+Shift Pressed! Erase Mode Activated")
+			}
+	        butProgram.classList.replace("btn-warning", "btn-danger");
             butProgram.innerText = "Program"
+		}
+	});*/
+
+	setInterval((function fn() {
+		if(keysPressed['Control']&&keysPressed['Shift']&&(!isWriting)){
+			butProgram.classList.replace("btn-warning", "btn-danger");
+            butProgram.getElementsByClassName("programMsg")[0].innerText = "Program";
+            keysPressed={};
         }
-    });*/
+	}), 4000);
 
     // disable device wifi config by default until user asks
-    toggleDevConf(true);
+
+	
     butWelcome.addEventListener("click", clickWelcome);
+    butStart.addEventListener("click",clickWelcomeStart)
     butSkipWelcome.addEventListener("click", clickSkipWelcome);
     butSave.addEventListener("click", clickSave);
     butDebug.addEventListener("click", clickDebug);
@@ -161,7 +196,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (skipWelcome) {
         switchStep("modular-stepper");
     }
-    accordionExpand(1);
+    accordionExpand(accordionStart); // 0 = start button, 1 = start
     // disable the programming button until we are connected
     butProgram.disabled = true;
     accordionDisable();
@@ -169,14 +204,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
 });
 
-
-
-
-/**
- * @name connect
- * Opens a Web Serial connection to a micro:bit and sets up the input and
- * output stream.
- */
 async function connect() {
     logMsg("Connecting...")
     await espTool.connect()
@@ -247,11 +274,6 @@ async function setProgressMax(resources) {
     }
 }
 
-
-/**
- * @name disconnect
- * Closes the Web Serial connection.
- */
 async function disconnect() {
     toggleUIConnected(false);
     await espTool.disconnect()
@@ -265,22 +287,17 @@ async function setStatusAlert(message, status = "success") {
     statusAlertBox.classList.remove("d-none");
 }
 
+
 async function endHelper() {
     //logMsg("Please reload this webpage and make sure to reconnect cable and flasher if trying to flash another cable or recovering from error.");
     butConnect.disabled = true;
     baudRate.disabled = true;
     butClear.disabled = true;
     butProgram.disabled = true;
-    butProgram.textContent = "Reload Web Page To Continue";
+    butProgram.getElementsByClassName("programMsg")[0].innerText = "Reload Web Page To Continue";
     autoscroll.disabled = true;
-
-
 }
 
-/**
- * @name readLoop
- * Reads data from the input stream and places it in the inputBuffer
- */
 async function readLoop() {
     reader = port.readable.getReader();
     while (true) {
@@ -411,6 +428,10 @@ async function clickSkipWelcome() {
 async function clickWelcome() {
     switchStep("modular-stepper");
 }
+async function clickWelcomeStart() {
+    switchStep("modular-stepper");
+    accordionExpand(1);
+}
 
 async function clickHardware() {
     butHardware.disabled = true;
@@ -427,7 +448,7 @@ async function clickConnect() {
     butConnect.textContent = " Connecting";
     butConnect.insertAdjacentHTML('afterbegin', '<span class="spinner-border spinner-border-sm"></span> ');
     await connect();
-    try {
+    //try {
         if (await espTool.sync()) {
             toggleUIConnected(true);
             let baud = parseInt(baudRate.value);
@@ -463,12 +484,13 @@ async function clickConnect() {
         if (debugState) {
             console.log(espTool);
         }
-    } catch (e) {
+    //}
+    /* catch (e) {
         errorMsg(e);
         await disconnect();
         toggleUIConnected(false);
         return;
-    }
+    }*/
     // give us access to the ESP session
     if (debugState) {
         console.log(espTool);
@@ -552,61 +574,87 @@ async function getFirmwareFiles(branch, erase = false, bytes = 0x00) {
     setProgressMax(chip_files.length);
     updateCoreProgress(25);
     for (let i = 0; i < chip_files.length; i++) {
-        if (!("name" in chip_files[i]) || !("offset" in chip_files[i])) {
-            errorMsg("Invalid data, cannot load online flash resources");
-                sdstat("error","invalid-firmware-from-server");
-            toggleUIProgram(false);
-        }
-        let request_file = url + chip_files[i]["name"];
-        let tmp = await fetch(request_file).then((response) => {
-            if (response.status >= 400 && response.status < 600) {
-                errorMsg("Error! Failed to fetch \"" + request_file + "\" due to error response " + response.status);
-                flashingReady = false;
-                let consiseError = "Invalid file received from server. Refresh WebFlasher page when ready to attempt flashing again. ";
-                sdstat("error","server-error-downloading-firmware");
-                setStatusAlert(consiseError, "danger");
-                throw new Error(consiseError);
-                return false;
+    	if(!"type" in chip_files[i]){
+				errorMsg("Invalid data, cannot load online flash resources");
+					sdstat("error","invalid-memmap-from-server");
+				toggleUIProgram(false);    		
+    	} else {
+    		if(chip_files[i]["type"] == "file"){
+				if (!("name" in chip_files[i]) || !("offset" in chip_files[i])) {
+					errorMsg("Invalid data, cannot load online flash resources");
+						sdstat("error","invalid-firmware-from-server");
+					toggleUIPro
+					gram(false);
+				}
+				if(debugState){
+					console.log("Loading configuration from file source")
+				}
+				let request_file = url + chip_files[i]["name"];
+				let tmp = await fetch(request_file).then((response) => {
+					if (response.status >= 400 && response.status < 600) {
+						errorMsg("Error! Failed to fetch \"" + request_file + "\" due to error response " + response.status);
+						flashingReady = false;
+						let consiseError = "Invalid file received from server. Refresh WebFlasher page when ready to attempt flashing again. ";
+						sdstat("error","server-error-downloading-firmware");
+						setStatusAlert(consiseError, "danger");
+						throw new Error(consiseError);
+						return false;
 
-            }
-            logMsg("Loaded online version of " + request_file + ". ");
-            return response.blob();
-        }).then((myblob) => myblob).catch((error) => {
-            console.log(error)
-        });
-        updateCoreProgress(40);
-        if (tmp === undefined) {
-            // missing file
-            logMsg("Invalid file downloaded " + chip_files["name"]);
-        } else {
-            let contents = await readUploadedFileAsArrayBuffer(tmp);
-            let content_length = contents.byteLength;
-            // if we want to "erase", we set this to be true
+					}
+					logMsg("Loaded online version of " + request_file + ". ");
+					return response.blob();
+				}).then((myblob) => myblob).catch((error) => {
+					console.log(error)
+				});
+				updateCoreProgress(40);
+				if (tmp === undefined) {
+					// missing file
+					logMsg("Invalid file downloaded " + chip_files["name"]);
+				} else {
+					let contents = await readUploadedFileAsArrayBuffer(tmp);
+					let content_length = contents.byteLength;
+					// if we want to "erase", we set this to be true
 
-            if (erase) {
-                contents = ((new Uint8Array(content_length)).fill(bytes)).buffer;
-            }
-            flash_list.push({
-                "url": request_file,
-                "name": chip_files[i]["name"],
-                "offset": chip_files[i]["offset"],
-                "size": content_length,
-                "data": contents
-            });
-            if (content_length < 1 || flash_list[i].data.byteLength < 1) {
-                flashingReady = false;
-                errorMsg("Empty file found for file " + chip_files[i]["name"] + " and url " + request_file + " with size " + content_length);
-                sdstat("error","invalid-firmware-bad-file");
-                let consiseError = "Bad response from server, invalid downloaded file size. Cannot continue. Refresh WebFlasher page when ready to attempt flashing again.";
-                setStatusAlert(consiseError, "danger");
-                throw new Error(consiseError);
-                return false;
-            }
-            if (debugState) {
-                console.log("data queried for flash size " + chip_flash_size);
-                console.log(flash_list);
-            }
-        }
+					if (erase) {
+						contents = ((new Uint8Array(content_length)).fill(bytes)).buffer;
+					}
+					flash_list.push({
+						"url": request_file,
+						"name": chip_files[i]["name"],
+						"offset": chip_files[i]["offset"],
+						"size": content_length,
+						"data": contents
+					});
+					if (content_length < 1 || flash_list[i].data.byteLength < 1) {
+						flashingReady = false;
+						errorMsg("Empty file found for file " + chip_files[i]["name"] + " and url " + request_file + " with size " + content_length);
+						sdstat("error","invalid-firmware-bad-file");
+						let consiseError = "Bad response from server, invalid downloaded file size. Cannot continue. Refresh WebFlasher page when ready to attempt flashing again.";
+						setStatusAlert(consiseError, "danger");
+						throw new Error(consiseError);
+						return false;
+					}
+					if (debugState) {
+						console.log("data queried for flash size " + chip_flash_size);
+						console.log(flash_list);
+					}
+				}
+			} else {
+				// erase command, not all blank items here 
+				let content_length = chip_files[i]["size"]
+				let contents = ((new Uint8Array(content_length)).fill(bytes)).buffer;
+				if(debugState){
+					console.log("Loading configuration from eraser source")
+				}
+				flash_list.push({
+					"url": "unknown",
+					"name": "blank-" + chip_files[i]["offset"] + ".bin",
+					"offset": chip_files[i]["offset"],
+					"size": content_length,
+					"data": contents
+				});
+			}
+		}
     }
     return flash_list;
 }
@@ -673,22 +721,17 @@ async function toggleDevConf(s = true) {
 
 async function clickProgramErase() {
     let shiftkeypress = false;
-    document.addEventListener("keydown", (event) => {
-        if (event.key == "Shift") {
-            shiftkeypress = true;
-        }
-    });
-    document.addEventListener("keyup", (event) => {
-        if (event.key == "Shift") {
-            shiftkeypress = false;
-        }
-    });
+    if(isConnected && keysPressed['Control'] && keysPressed['Shift']){
+    	shiftkeypress = true;
+    } else {
+    	shiftkeypress = false;
+    }
     if (isConnected) {
-        /*if (shiftkeypress) {
+        if (shiftkeypress) {
             clickErase();
         } else {
             clickProgram();
-        }*/
+        }
         clickProgram();
     } else {
         if (debugState) {
@@ -756,7 +799,7 @@ async function clickProgram() {
             }
         }
         if (flash_successful) {
-            setStatusAlert("Device Programmed, please reload web page and remove programmer and cable. ");
+            setStatusAlert("Device Programmed, please reload web page and remove programmer and device. ");
             logMsg("To run the new firmware, please unplug your device and plug into normal USB port.");
             logMsg(" ");
     		sdstat("success","flash-success-" + branch);
@@ -801,38 +844,41 @@ async function patchFlash(bin_list) {
     }
 
 
-    const wifiPatcher = (orig_data) => {
+    const configPatcher = (orig_data,search) => {
         let utf8Encoder = new TextEncoder();
         let mod_array = new Uint8Array(orig_data);
 
         let perform_patch = false; // set this to true once we verify html elements
-
-        /*let access_log_str = utf8Encoder.encode("access.log"); 
-        // search for "access.log", this is a bit more complex then python
-        // but it works for what we need and since this is not user interactive
-        // we don"t care
-        let pos = mod_array.indexOfString(access_log_str);
-        let offset = int.from_bytes(BL[pos+24:pos+28], "little");
-
-        let ssid = "testq2345654";
-        let pass = "123456789";
-        let mode = "2";*/
-
-        let ssid_pos = mod_array.indexOfString(utf8Encoder.encode("SSID "));
-
-        if (ssid_pos > -1 && perform_patch) {
+ 
+		let configuration = {} 
+		// this is first 
+		if(settings['customizeConfig'].checked){
+			perform_patch=true;
+			configuration['wifiset']="1";
+			// edge case here, need error trapping
+			configuration["wifimode"] = loadSetting("devWifiMode").replace("wifiMode","");
+			configuration["wifissid"] = settings["devWiFiSSID"].value;
+			configuration["wifipass"] = settings["devWiFiPass"].value;
+		}
+        let pos = 0 ;
+        // mod_array.indexOfString(utf8Encoder.encode("INIT;"));
+        if (pos > -1 && perform_patch) {
             if (debugState) {
                 console.log("found match at " + pos + " for data ");
                 console.log(orig_data);
                 console.log(search);
             }
-            let aligned = 114;
-            let ccfg = "SSID " + ssid + " PASS " + pass + " MODE " + mode;
-            let cfglen = ccfg.length
-            let final_cfg = utf8Encoder.encode(`${ccfg}`.padEnd((aligned), "\0"));
+            
+            let ccfg = "INIT;";
+            for (var setting in configuration) {
+            	ccfg+=`S:${setting}="${configuration[setting]}"`;
+            }
+
+            let cfglen = ccfg.length;
+            let final_cfg = utf8Encoder.encode(`${ccfg}`);
 
             let re_pos = 0;
-            for (let i = ssid_pos; i < ssid_pos + final_cfg.length; i++) {
+            for (let i = pos; i < pos + final_cfg.length; i++) {
                 mod_array[i] = final_cfg[re_pos];
                 re_pos += 1;
             }
@@ -840,6 +886,9 @@ async function patchFlash(bin_list) {
             re_pos = 0;
         }
         // and send back
+        if(debugState){
+        	logMsg("Writing SSID Configuration: " + String(mod_array));
+        }
         return mod_array.buffer;
     }
 
@@ -856,6 +905,9 @@ async function patchFlash(bin_list) {
         if (orig_bin.offset == "0x00000") {
             // replace the data
             bin_list[i].data = findBase330(orig_bin.data, [0, 32], [3, 48]);
+        } else if(orig_bin.offset == "0x7f000"){
+        	// search for INIT;
+        	bin_list[i].data = configPatcher(orig_bin.data, [73, 78, 73, 84, 59])
         }
     }
     return bin_list
@@ -918,7 +970,7 @@ async function clickErase() {
 
     var confirm_erase = confirm("Warning: Erasing should only be performed " +
         "when recommended by support. This operations will require you to reload the " +
-        "web page to continue and disconnect and reconnect cable to flasher. " +
+        "web page to continue and disconnect and reconnect device to flasher. " +
         "Normally this operation is not needed. Are you ready to proceed?");
 
     if (confirm_erase) {
@@ -939,9 +991,9 @@ async function clickErase() {
                 errorMsg(e);
             }
         }
-        setStatusAlert("Cable Erased, please reload web page and remove programmer and cable");
+        setStatusAlert("Device Erased, please reload web page and remove programmer and device");
         logMsg("Erasing complete, please continue with flash process after " +
-            "reloading web page (Ctrl+F5) and reconnecting to cable");
+            "reloading web page (Ctrl+F5) and reconnecting to device");
         logMsg(" ");
     } else {
         logMsg("Erasing operation skipped.");
@@ -1063,7 +1115,7 @@ function toggleUIConnected(connected) {
         //butProgram.disabled = true;
         lbl = "Error";
     	sdstat("error","hardware-missing");
-        let err = "No device available. Click the Show Me How button for help. Refresh WebFlasher to attempt flashing again.";
+        let err = "No device available. Refresh WebFlasher to attempt flashing again.";
         setStatusAlert(err, "danger");
         accordionExpand(2);
         accordionDisable();
@@ -1117,6 +1169,7 @@ function loadSettings() {
     let welcomeScreen = getCookie("OMGWebFlasherSkipWelcome");
     if (welcomeScreen !== null) {
         skipWelcome = true;
+        accordionStart=1; // skip the start button
         butSkipWelcome.checked = true;
     }
     for (var key in settings) {
@@ -1137,7 +1190,13 @@ function loadSettings() {
                             if (debugState) {
                                 console.log("Searching for element with id " + value + " to select to false");
                             }
-                            element[i].checked = false;
+                            // odd way to check for null but ok
+                            if(value !== undefined && value !== null){
+                            	if(debugState) {
+                            		console.log("Unsetting value for " + value);
+                            	}
+	                            element[i].checked = false;
+	                        }
                         }
                     }
                 } else {
@@ -1156,6 +1215,7 @@ function loadSettings() {
                             if (value === "true") {
                                 value = true;
                             } else {
+                            	console.log("running on element" + value)
                                 value = false;
                             }
                             element.checked = value;
@@ -1213,8 +1273,7 @@ function saveSettings() {
             } else {
                 if (NodeList.prototype.isPrototypeOf(element) || HTMLCollection.prototype.isPrototypeOf(element)) {
 
-                    for (let i = 0; i < element.length; i++) {
-                        console.log(element[i])
+                    for (let i = 0; i < element.length; i++) { 
                         if (element[i].checked) {
                             saveSetting(key, element[i].id);
                         }
@@ -1226,7 +1285,6 @@ function saveSettings() {
             }
         }
     }
-
 }
 
 
