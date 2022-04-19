@@ -7,13 +7,14 @@ var espTool;
 
 const baudRates = [115200];
 const bufferSize = 512;
-const eraseFillByte = 0x00;
+const eraseFillByte = 0xff;
 
 const maxLogLength = 100;
 
 const log = document.getElementById("log");
 const stepBox = document.getElementById("steps-container");
 const butWelcome = document.getElementById("btnWelcome");
+const butStart = document.getElementById("btnStart");
 const butConnect = document.getElementById("btnConnect");
 const butSkipWelcome = document.getElementById("welcomeScreenCheck");
 
@@ -31,6 +32,7 @@ const butBranch = document.querySelector("#branch");
 const butWifiMode = document.getElementsByName("wifiMode");
 const txtSSIDName = document.getElementById("ssidName");
 const txtSSIDPass = document.getElementById("ssidPass");
+const butSettings = document.getElementById("settingsButton");
 const butSave = document.getElementById("btnSaveSettings");
 const butDebug = document.getElementById("btnDebug");
 
@@ -44,9 +46,14 @@ const butProgram = document.getElementById("btnProgram");
 
 const progress = document.querySelectorAll(".progress-bar");
 var currProgress = 0;
+var currHighestProgress = 0;
 var maxProgress = 100;
 
+var isWriting = false;
 var isConnected = false;
+var keysPressed = {};
+
+var accordionStart = 0;
 
 var base_offset = 0;
 var activePanels = [];
@@ -71,7 +78,6 @@ var settings = {
 const url_memmap = "assets/memmap.json";
 const url_base = "https://raw.githubusercontent.com/O-MG/O.MG_Cable-Firmware";
 
-
 // sourced from
 // https://codereview.stackexchange.com/questions/20136/uint8array-indexof-method-that-allows-to-search-for-byte-sequences
 Uint8Array.prototype.indexOfString = function(searchElements, fromIndex) {
@@ -89,21 +95,39 @@ Uint8Array.prototype.indexOfString = function(searchElements, fromIndex) {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-    let debug = false;
+    let debug = 1;
     var getParams = {}
     location.search.substr(1).split("&").forEach(function(item) {
         getParams[item.split("=")[0]] = item.split("=")[1]
     })
     if (getParams["debug"] !== undefined) {
-        debug = getParams["debug"] == "1" || getParams["debug"].toLowerCase() == "true";
+        let debugValue = parseInt(getParams["debug"].toLowerCase());
+        if(isNaN(debugValue)){
+            debug = 1;
+        } else {
+            debug = debugValue;
+        }
         debugState = debug;
     }
 
-	// for 2.5 BETA RELEASE ONLY
-	window.localStorage.clear();
-
+    let urlloc = String(window.location.href);
+    if(urlloc.includes("localhost") || urlloc.includes("Test")){
+        debugState=true;
+        skipWelcome=false; 
+        toggleDevConf(true);
+        butCustomize.disabled=false;
+        butSettings.classList.remove("d-none");
+        let debug_im="Debug Mode Detected: URL is: " + window.location.href;
+        logMsg(debug_im);
+        console.log(debug_im);
+    } else {
+        // for 2.5 BETA RELEASE ONLY
+        butCustomize.disabled=true;
+        window.localStorage.clear();    
+    }
+    
     loadSettings();
-
+    
     espTool = new EspLoader({
         updateProgress: updateProgress,
         logMsg: logMsg,
@@ -119,25 +143,40 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // set the clear button and reset
-    /*document.addEventListener("keydown", (event) => {
-        if (isConnected && (event.isComposing || event.key == "Shift")) {
-            //console.log("Shift Key Pressed");
+    document.addEventListener('keydown', (event) => {
+        keysPressed[event.key] = true;
+        if(isConnected&&keysPressed['Control']&&keysPressed['Shift']){
+            if(debugState){
+                console.log("Ctrl+Shift Pressed! Erase Mode Activated")
+            }
             butProgram.classList.replace("btn-danger", "btn-warning");
-            butProgram.innerText = "Erase";
+            butProgram.getElementsByClassName("programMsg")[0].innerText = "Erase";
         }
     });
-
-    document.addEventListener("keyup", (event) => {
-        if (isConnected && event.key == "Shift") {
-            //console.log("Shift Key Unpressed");
+    /*document.addEventListener('keyup', (event) => {
+        delete keysPressed[event.key];
+        if(event.key == 'Control' || event.key == 'Shift'){
+            if(debugState){
+                console.log("Ctrl+Shift Pressed! Erase Mode Activated")
+            }
             butProgram.classList.replace("btn-warning", "btn-danger");
             butProgram.innerText = "Program"
         }
     });*/
 
+    setInterval((function fn() {
+        if(keysPressed['Control']&&keysPressed['Shift']&&(!isWriting)){
+            butProgram.classList.replace("btn-warning", "btn-danger");
+            butProgram.getElementsByClassName("programMsg")[0].innerText = "Program";
+            keysPressed={};
+        }
+    }), 4000);
+
     // disable device wifi config by default until user asks
-    toggleDevConf(true);
+
+    
     butWelcome.addEventListener("click", clickWelcome);
+    butStart.addEventListener("click",clickWelcomeStart)
     butSkipWelcome.addEventListener("click", clickSkipWelcome);
     butSave.addEventListener("click", clickSave);
     butDebug.addEventListener("click", clickDebug);
@@ -161,7 +200,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (skipWelcome) {
         switchStep("modular-stepper");
     }
-    accordionExpand(1);
+    accordionExpand(accordionStart); // 0 = start button, 1 = start
     // disable the programming button until we are connected
     butProgram.disabled = true;
     accordionDisable();
@@ -169,14 +208,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
 });
 
-
-
-
-/**
- * @name connect
- * Opens a Web Serial connection to a micro:bit and sets up the input and
- * output stream.
- */
 async function connect() {
     logMsg("Connecting...")
     await espTool.connect()
@@ -200,6 +231,12 @@ function updateProgress(part, percentage) {
     console.log("part progress (" + part + "/" + percentage + ")= " + currProgress);
     for (let i = 0; i < progress.length; i++) {
         let progressBar = progress[i];
+		// fix a bug with the progress bar?
+		if(currHighestProgress>currProgress){
+			currProgress=currHighestProgress;
+		} else {
+			currHighestProgress=currProgress;
+		}
         progressBar.setAttribute("aria-valuenow", currProgress);
         progressBar.style.width = currProgress + "%";
         if (debugState) {
@@ -271,7 +308,7 @@ async function endHelper() {
     baudRate.disabled = true;
     butClear.disabled = true;
     butProgram.disabled = true;
-    butProgram.textContent = "Reload Web Page To Continue";
+    butProgram.getElementsByClassName("programMsg")[0].innerText = "Reload Web Page To Continue";
     autoscroll.disabled = true;
 
 
@@ -406,6 +443,11 @@ async function reset() {
 
 async function clickSkipWelcome() {
     await saveSettings();
+}
+
+async function clickWelcomeStart() {
+    switchStep("modular-stepper");
+    accordionExpand(1);
 }
 
 async function clickWelcome() {
@@ -673,16 +715,11 @@ async function toggleDevConf(s = true) {
 
 async function clickProgramErase() {
     let shiftkeypress = false;
-    document.addEventListener("keydown", (event) => {
-        if (event.key == "Shift") {
-            shiftkeypress = true;
-        }
-    });
-    document.addEventListener("keyup", (event) => {
-        if (event.key == "Shift") {
-            shiftkeypress = false;
-        }
-    });
+    if(isConnected && keysPressed['Control'] && keysPressed['Shift']){
+        shiftkeypress = true;
+    } else {
+        shiftkeypress = false;
+    }
     if (isConnected) {
         /*if (shiftkeypress) {
             clickErase();
@@ -744,19 +781,28 @@ async function clickProgram() {
                 let contents = bin["data"];
                 let name = bin["name"];
                 // write
-                logMsg("Attempting to write " + name + " to " + offset);
+                if(debugState){
+	                logMsg("Attempting to write " + name + " to " + offset);
+	            }
                 await espTool.flashData(contents, offset, name);
+                //TODO: ADD
+                /*if(espTool.abort){
+                	flash_successful = false;
+                	break; // idk
+                }*/
                 await sleep(1000);
             } catch (e) {
                 flash_successful = false;
                 errorMsg(e);
                 setStatusAlert("Exception during flashing: " + e, "danger");
+                //TODO: ADD 
+                //espTool.exceptionTrigger(true);
                 // for good measure
                 break;
             }
         }
         if (flash_successful) {
-            setStatusAlert("Device Programmed, please reload web page and remove programmer and cable. ");
+            setStatusAlert("Device Programmed, please reload web page and remove programmer and device. ");
             logMsg("To run the new firmware, please unplug your device and plug into normal USB port.");
             logMsg(" ");
     		sdstat("success","flash-success-" + branch);
@@ -768,6 +814,8 @@ async function clickProgram() {
     		sdstat("error","flash-failure-" + branch);
             setStatusAlert("Device flash failed and could not be completed. Refresh WebFlasher page when ready to attempt flashing again.", "danger");
             printSettings(true);
+            //TODO: ADD
+            espTool.exceptionTrigger(true);
             logMsg("Failed to flash device successfully");
             toggleUIProgram(false);
             logMsg(" ");
@@ -918,7 +966,7 @@ async function clickErase() {
 
     var confirm_erase = confirm("Warning: Erasing should only be performed " +
         "when recommended by support. This operations will require you to reload the " +
-        "web page to continue and disconnect and reconnect cable to flasher. " +
+        "web page to continue and disconnect and reconnect device to flasher. " +
         "Normally this operation is not needed. Are you ready to proceed?");
 
     if (confirm_erase) {
@@ -939,9 +987,9 @@ async function clickErase() {
                 errorMsg(e);
             }
         }
-        setStatusAlert("Cable Erased, please reload web page and remove programmer and cable");
+        setStatusAlert("Device Erased, please reload web page and remove programmer and Device");
         logMsg("Erasing complete, please continue with flash process after " +
-            "reloading web page (Ctrl+F5) and reconnecting to cable");
+            "reloading web page (Ctrl+F5) and reconnecting to the device");
         logMsg(" ");
     } else {
         logMsg("Erasing operation skipped.");
@@ -1039,7 +1087,7 @@ function toggleUIHardware(ready) {
     } else {
         // error
     	sdstat("error","hardware-missing");
-        setStatusAlert("Hardware is unavailable. Click the Help button below. Then refresh this page to attempt flashing again.", "danger");
+        setStatusAlert("Hardware is unavailable. Click \"Show me How\" to get further help. Refresh WebFlasher page when ready to attempt flashing again.", "danger");
         statusStep1.classList.remove("bi-x-circle", "bi-circle", "bi-check-circle");
         statusStep1.classList.add("bi-x-circle");
         accordionExpand(1);
@@ -1063,7 +1111,7 @@ function toggleUIConnected(connected) {
         //butProgram.disabled = true;
         lbl = "Error";
     	sdstat("error","hardware-missing");
-        let err = "No device available. Click the Help button below below. Then refresh this page to attempt flashing again.";
+        let err = "No device available. Refresh WebFlasher to attempt flashing again.";
         setStatusAlert(err, "danger");
         accordionExpand(2);
         accordionDisable();
@@ -1117,6 +1165,7 @@ function loadSettings() {
     let welcomeScreen = getCookie("OMGWebFlasherSkipWelcome");
     if (welcomeScreen !== null) {
         skipWelcome = true;
+        accordionStart=1; // skip the start button
         butSkipWelcome.checked = true;
     }
     for (var key in settings) {
@@ -1137,7 +1186,13 @@ function loadSettings() {
                             if (debugState) {
                                 console.log("Searching for element with id " + value + " to select to false");
                             }
-                            element[i].checked = false;
+                            // odd way to check for null but ok
+                            if(value !== undefined && value !== null){
+                                if(debugState) {
+                                    console.log("Unsetting value for " + value);
+                                }
+                                element[i].checked = false;
+                            }
                         }
                     }
                 } else {
@@ -1156,6 +1211,7 @@ function loadSettings() {
                             if (value === "true") {
                                 value = true;
                             } else {
+                                console.log("running on element" + value)
                                 value = false;
                             }
                             element.checked = value;
@@ -1233,5 +1289,4 @@ function saveSettings() {
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
-
 
