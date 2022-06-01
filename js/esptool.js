@@ -222,6 +222,9 @@ class EspLoader {
    * Read a register within the ESP chip RAM, returns a 4-element list
    */
   async readRegister(reg) {
+    if (this.debug) {
+      this.debugMsg("Reading from Register " + this.toHex(reg, 8));
+    }
     let packet = struct.pack("<I", reg);
     await this.sendCommand(ESP_READ_REG, packet);
     let [val, data] = await this.getResponse(ESP_READ_REG);
@@ -233,6 +236,9 @@ class EspLoader {
    * Write to a register within the ESP chip RAM, returns a 4-element list
    */
   async writeRegister(reg, value) {
+    if (this.debug) {
+      this.debugMsg("Writing to Register " + this.toHex(reg, 8));
+    }
     let packet = struct.pack("<I", reg);
     return (await this.checkCommand(ESP_WRITE_REG, packet))[0];
   };
@@ -321,6 +327,11 @@ class EspLoader {
     }
     let status = data.slice(-statusLen, data.length);
     data = data.slice(0, -statusLen);
+    if (this.debug) {
+      this.debugMsg("status", status);
+      this.debugMsg("value", value);
+      this.debugMsg("data", data);
+    }
     if (status[0] == 1) {
       if (status[1] == ROM_INVALID_RECV_MSG) {
         throw("Invalid (unsupported) command " + this.toHex(opcode));
@@ -357,6 +368,7 @@ class EspLoader {
     let packet = struct.pack("<BBHI", 0x00, opcode, buffer.length, checksum);
     packet = packet.concat(buffer);
     packet = this.slipEncode(packet);
+    this.debugMsg("Writing " + packet.length + " byte" + (packet.length == 1 ? "" : "s") + ":", packet);
     await this.writeToStream(packet);
   };
 
@@ -455,20 +467,17 @@ class EspLoader {
         }
         if (readBytes.length == 0) {
             let waitingFor = partialPacket === null ? "header" : "content";
-            if(this.debug){
-                this.debugMsg("Timed out waiting for packet " + waitingFor);
-            }
+            this.debugMsg("Timed out waiting for packet " + waitingFor);
             throw new SlipReadError("Timed out waiting for packet " + waitingFor);
         }
+        this.debugMsg("Read " + readBytes.length + " bytes: " + this.hexFormatter(readBytes));
         for (let b of readBytes) {
             if (partialPacket === null) {  // waiting for packet header
                 if (b == 0xc0) {
                     partialPacket = [];
                 } else {
-                    if(this.debug){
-                        this.debugMsg("Read invalid data: " + this.hexFormatter(readBytes));
-                        this.debugMsg("Remaining data in serial buffer: " + this.hexFormatter(inputBuffer));
-                    }
+                    this.debugMsg("Read invalid data: " + this.hexFormatter(readBytes));
+                    this.debugMsg("Remaining data in serial buffer: " + this.hexFormatter(inputBuffer));
                     throw new SlipReadError('Invalid head of packet (' + this.toHex(b) + ')');
                 }
             } else if (inEscape) {  // part-way through escape sequence
@@ -478,15 +487,14 @@ class EspLoader {
                 } else if (b == 0xdd) {
                     partialPacket.push(0xdb);
                 } else {
-                    if(this.debug){
-                        this.debugMsg("Read invalid data: " + this.hexFormatter(readBytes));
-                        this.debugMsg("Remaining data in serial buffer: " + this.hexFormatter(inputBuffer));
-                    }
+                    this.debugMsg("Read invalid data: " + this.hexFormatter(readBytes));
+                    this.debugMsg("Remaining data in serial buffer: " + this.hexFormatter(inputBuffer));
                     throw new SlipReadError('Invalid SLIP escape (0xdb, ' + this.toHex(b) + ')');
                 }
             } else if (b == 0xdb) {  // start of escape sequence
                 inEscape = true;
             } else if (b == 0xc0) {  // end of packet
+                this.debugMsg("Received full packet: " + this.hexFormatter(partialPacket))
                 return partialPacket;
                 partialPacket = null;
             } else {  // normal byte in packet
