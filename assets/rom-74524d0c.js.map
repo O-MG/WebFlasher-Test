@@ -1,0 +1,1 @@
+{"version":3,"file":"rom-74524d0c.js","sources":["../../node_modules/esptool-js/lib/targets/rom.js"],"sourcesContent":["export class ROM {\n    get_erase_size(offset, size) {\n        return size;\n    }\n}\n"],"names":["ROM","offset","size"],"mappings":"AAAO,MAAMA,CAAI,CACb,eAAeC,EAAQC,EAAM,CACzB,OAAOA,CACV,CACL","x_google_ignoreList":[0]}
